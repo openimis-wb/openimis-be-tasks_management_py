@@ -21,6 +21,18 @@ from tasks_management.validation import TaskGroupValidation, TaskExecutorValidat
 logger = logging.getLogger(__name__)
 
 
+class TaskCompletionRefused(Exception):
+    """
+    Raised through TaskService.resolve_task when the completion that the resolution triggers fails.
+    `result` is the failed TaskService.complete_task output. resolve_task runs in one transaction,
+    so the refusal also rolls back the business_status and additional data it stored.
+    """
+
+    def __init__(self, result):
+        self.result = result
+        super().__init__(result.get('detail') or result.get('message'))
+
+
 class TaskService(BaseService):
     OBJECT_TYPE = Task
 
@@ -55,6 +67,7 @@ class TaskService(BaseService):
         except Exception as exc:
             return output_exception(model_name=self.OBJECT_TYPE.__name__, method="complete", exception=exc)
 
+    @transaction.atomic
     @register_service_signal('task_service.resolve_task')
     def resolve_task(self, obj_data):
         try:
