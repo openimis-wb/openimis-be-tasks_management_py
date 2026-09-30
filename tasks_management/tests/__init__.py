@@ -7,3 +7,4 @@ from tasks_management.tests.flow_service_tests import FlowServiceTestCase
 from tasks_management.tests.gql_flow_tests import GqlFlowTestCase
 from tasks_management.tests.resolve_task_mutation_tests import ResolveTaskMutationCompletionTest, \
     ResolveTaskMutationDeduplicationRefusalTest
+from tasks_management.tests.task_history_query_tests import TaskHistoryEntityStringTest

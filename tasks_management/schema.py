@@ -12,7 +12,7 @@ from tasks_management.gql_mutations import CreateTaskGroupMutation, UpdateTaskGr
     UpdateTaskMutation, ResolveTaskMutation, CreateTaskFlowMutation, UpdateTaskFlowMutation, \
     ReplaceTaskFlowMutation, DeleteTaskFlowMutation
 from tasks_management.gql_queries import TaskGroupGQLType, TaskExecutorGQLType, TaskGQLType, TaskHistoryGQLType, \
-    TaskFlowGQLType, TaskDecisionGQLType, TaskAssignmentTargetGQLType
+    TaskFlowGQLType, TaskDecisionGQLType, TaskAssignmentTargetGQLType, entity_string_of
 from tasks_management.models import TaskGroup, TaskExecutor, Task, TaskFlow, TaskDecision
 from tasks_management.apps import TasksManagementConfig
 
@@ -119,7 +119,10 @@ class Query(graphene.ObjectType):
 
         entity_string = kwargs.get("entityString__Icontains")
         if entity_string:
-            task_ids = [task.id for task in query if entity_string.lower() in str(task.entity).lower()]
+            task_ids = [
+                task.id for task in query
+                if entity_string.lower() in (entity_string_of(task.entity_type_id, task.entity_id) or '').lower()
+            ]
             query = query.filter(id__in=task_ids)
 
         return gql_optimizer.query(query, info)
