@@ -10,7 +10,8 @@ from core.services import wait_for_mutation
 from core.utils import append_validity_filter
 from tasks_management.gql_mutations import CreateTaskGroupMutation, UpdateTaskGroupMutation, DeleteTaskGroupMutation, \
     UpdateTaskMutation, ResolveTaskMutation
-from tasks_management.gql_queries import TaskGroupGQLType, TaskExecutorGQLType, TaskGQLType, TaskHistoryGQLType
+from tasks_management.gql_queries import TaskGroupGQLType, TaskExecutorGQLType, TaskGQLType, TaskHistoryGQLType, \
+    entity_string_of
 from tasks_management.models import TaskGroup, TaskExecutor, Task
 from tasks_management.apps import TasksManagementConfig
 
@@ -105,7 +106,10 @@ class Query(graphene.ObjectType):
 
         entity_string = kwargs.get("entityString__Icontains")
         if entity_string:
-            task_ids = [task.id for task in query if entity_string.lower() in str(task.entity).lower()]
+            task_ids = [
+                task.id for task in query
+                if entity_string.lower() in (entity_string_of(task.entity_type_id, task.entity_id) or '').lower()
+            ]
             query = query.filter(id__in=task_ids)
 
         return gql_optimizer.query(query, info)

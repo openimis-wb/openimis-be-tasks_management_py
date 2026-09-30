@@ -4,3 +4,4 @@ from tasks_management.tests.task_event_tests import TaskEventTestCase
 from tasks_management.tests.checker_logic_service_tests import CheckerLogicServiceTestCase
 from tasks_management.tests.resolve_task_mutation_tests import ResolveTaskMutationCompletionTest, \
     ResolveTaskMutationDeduplicationRefusalTest
+from tasks_management.tests.task_history_query_tests import TaskHistoryEntityStringTest

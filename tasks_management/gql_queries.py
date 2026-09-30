@@ -3,6 +3,8 @@ import importlib
 import graphene
 import copy
 
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db.models import Q
 from graphene_django import DjangoObjectType
 
@@ -12,6 +14,21 @@ from tasks_management.apps import TasksManagementConfig
 from tasks_management.models import TaskGroup, TaskExecutor, Task
 
 DICT_STRING = "{}"
+
+
+def entity_string_of(entity_type_id, entity_id):
+    """
+    Text of the entity a task points to, from its entity_type/entity_id columns. Task history rows
+    hold these columns but not the generic relation. None when there is no entity or its row is gone.
+    """
+    if entity_type_id is None or entity_id is None:
+        return None
+    try:
+        model = ContentType.objects.get_for_id(entity_type_id).model_class()
+        entity = model._base_manager.filter(pk=entity_id).first() if model else None
+    except (ObjectDoesNotExist, ValueError, TypeError, ValidationError):
+        return None
+    return str(entity) if entity is not None else None
 
 
 def is_task_triage(user):
@@ -140,6 +157,9 @@ class TaskHistoryGQLType(DjangoObjectType):
                 return f"Error: {str(e)}"
 
         return serialized_data
+
+    def resolve_entity_string(self, info):
+        return entity_string_of(self.entity_type_id, self.entity_id)
 
     @classmethod
     def get_queryset(cls, queryset, info):
