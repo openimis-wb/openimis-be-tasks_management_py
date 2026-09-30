@@ -10,7 +10,7 @@ from core.models import MutationLog
 from core.models.openimis_graphql_test_case import openIMISGraphQLTestCase, BaseTestContext
 from core.test_helpers import LogInHelper
 from tasks_management.apps import TasksManagementConfig
-from tasks_management.models import Task, TaskGroup, TaskMutation
+from tasks_management.models import Task, TaskDecision, TaskGroup, TaskMutation
 from tasks_management.services import TaskGroupService, TaskService
 
 REFUSAL = 'tasks_management.test.completion_refused'
@@ -92,6 +92,7 @@ class ResolveTaskMutationCompletionTest(openIMISGraphQLTestCase):
         log = self._resolve(task, 'APPROVED', {'note': 'fine'})
 
         self.assertEqual(log.status, MutationLog.SUCCESS, log.error)
+        self.assertTrue(TaskDecision.objects.filter(task=task, user_id=self.user.id).exists())
         task.refresh_from_db()
         self.assertEqual(task.status, Task.Status.COMPLETED)
         self.assertEqual(task.business_status, {str(self.user.id): 'APPROVED'})
@@ -120,6 +121,7 @@ class ResolveTaskMutationCompletionTest(openIMISGraphQLTestCase):
         self.assertNotIn(str(self.user.id), task.business_status)
         self.assertNotIn(str(self.user.id), (task.json_ext or {}).get('additional_resolve_data', {}))
         self.assertEqual(Task.history.filter(id=task.id).count(), history_rows)
+        self.assertFalse(TaskDecision.objects.filter(task=task).exists())
 
     def test_a_refused_completion_keeps_the_mutation_linked_to_the_task(self):
         self._group(TaskGroup.TaskGroupCompletionPolicy.ANY, [self.refusing_source])
