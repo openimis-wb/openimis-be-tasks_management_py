@@ -8,7 +8,7 @@ from core.gql.gql_mutations.base_mutation import BaseHistoryModelCreateMutationM
 from core.schema import OpenIMISMutation
 from tasks_management.apps import TasksManagementConfig
 from tasks_management.models import TaskGroup, Task, TaskMutation, TaskExecutor, TaskFlow, TaskFlowStep
-from tasks_management.services import TaskGroupService, TaskService, TaskFlowService
+from tasks_management.services import TaskGroupService, TaskService, TaskFlowService, TaskCompletionRefused
 
 
 class CreateTaskGroupInput(OpenIMISMutation.Input):
@@ -368,7 +368,10 @@ class ResolveTaskMutation(BaseHistoryModelUpdateMutationMixin, BaseMutation):
             data.pop('client_mutation_label')
 
         service = TaskService(user)
-        res = service.resolve_task(data)
+        try:
+            res = service.resolve_task(data)
+        except TaskCompletionRefused as refusal:
+            res = refusal.result
         task = Task.objects.filter(id=data['id']).first()
 
         if client_mutation_id:

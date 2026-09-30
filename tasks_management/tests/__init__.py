@@ -5,3 +5,5 @@ from tasks_management.tests.checker_logic_service_tests import CheckerLogicServi
 from tasks_management.tests.flow_resolver_tests import FlowResolverTestCase
 from tasks_management.tests.flow_service_tests import FlowServiceTestCase
 from tasks_management.tests.gql_flow_tests import GqlFlowTestCase
+from tasks_management.tests.resolve_task_mutation_tests import ResolveTaskMutationCompletionTest, \
+    ResolveTaskMutationDeduplicationRefusalTest

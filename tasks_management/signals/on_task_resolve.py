@@ -8,7 +8,7 @@ from simple_history.utils import bulk_create_with_history
 from core.forms import User
 from tasks_management.apps import TasksManagementConfig
 from tasks_management.models import Task, TaskDecision, TaskExecutor, TaskFlowStep
-from tasks_management.services import TaskService
+from tasks_management.services import TaskService, TaskCompletionRefused
 
 logger = logging.getLogger(__name__)
 
@@ -17,22 +17,31 @@ logger = logging.getLogger(__name__)
 _FLOW_VERDICTS = (TaskDecision.Decision.APPROVED, TaskDecision.Decision.FAILED)
 
 
+def _complete_task(_task, _user, failed=False):
+    payload = {"id": _task.id, 'failed': True} if failed else {"id": _task.id}
+    result = TaskService(_user).complete_task(payload)
+    if not result.get('success'):
+        logger.error("Completion of task %s refused: %s", _task.id, result.get('detail'))
+        raise TaskCompletionRefused(result)
+    return result
+
+
 def resolve_task_all(_task, _user):
     if 'FAILED' in _task.business_status.values():
-        TaskService(_user).complete_task({"id": _task.id, 'failed': True})
+        _complete_task(_task, _user, failed=True)
     n_of_approves = sum(map('APPROVED'.__eq__, _task.business_status.values()))
     n_of_executors = _task.task_group.taskexecutor_set.filter(task_group__is_deleted=False, is_deleted=False).count()
     if not n_of_executors:
         logger.warning("No valid executors of task with policy ALL %s", str(_task.uuid))
     if n_of_approves == n_of_executors:
-        TaskService(_user).complete_task({"id": _task.id})
+        _complete_task(_task, _user)
 
 
 def resolve_task_any(_task, _user):
     if 'FAILED' in _task.business_status.values():
-        TaskService(_user).complete_task({"id": _task.id, 'failed': True})
+        _complete_task(_task, _user, failed=True)
     if 'APPROVED' in _task.business_status.values():
-        TaskService(_user).complete_task({"id": _task.id})
+        _complete_task(_task, _user)
 
 
 def resolve_task_n(_task, _user):
@@ -48,7 +57,7 @@ def resolve_task_n(_task, _user):
     and approving on one vote is the least safe reading of "N".
     """
     if 'FAILED' in _task.business_status.values():
-        TaskService(_user).complete_task({"id": _task.id, 'failed': True})
+        _complete_task(_task, _user, failed=True)
         return
     threshold = _task.task_group.threshold
     if not threshold:
@@ -59,7 +68,7 @@ def resolve_task_n(_task, _user):
         return
     n_of_approves = sum(map('APPROVED'.__eq__, _task.business_status.values()))
     if n_of_approves >= threshold:
-        TaskService(_user).complete_task({"id": _task.id})
+        _complete_task(_task, _user)
 
 
 def _record_flat_decisions(_task, _user, _verdict):
@@ -561,7 +570,8 @@ def on_task_resolve(**kwargs):
     Generic event for checking the completion_policy of a task. If the task is
     completed or failed, TaskService.complete_task is called with the
     appropriate `failed` flag. Tasks with a flow follow the layered path;
-    flat tasks follow the legacy path unchanged.
+    flat tasks follow the legacy path unchanged. On the legacy path a failed
+    completion raises TaskCompletionRefused out of TaskService.resolve_task.
     """
     try:
         result = kwargs.get('result', None)
@@ -619,6 +629,8 @@ def on_task_resolve(**kwargs):
             return ['Unknown completion_policy: %s' % task.task_group.completion_policy]
 
         resolvers[task.task_group.completion_policy](task, user)
+    except TaskCompletionRefused:
+        raise
     except Exception as e:
         logger.error("Error while executing on_task_resolve", exc_info=e)
         return [str(e)]
