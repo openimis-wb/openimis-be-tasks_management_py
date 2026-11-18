@@ -6,6 +6,7 @@ import uuid
 from abc import abstractmethod, ABC
 from typing import Dict, Type
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from core.datetimes.ad_datetime import AdDate, AdDatetime
@@ -16,7 +17,8 @@ from core.services.utils import check_authentication, output_exception, output_r
 from core.utils import to_json_safe_value
 from tasks_management.apps import TasksManagementConfig
 from tasks_management.models import TaskGroup, TaskExecutor, Task
-from tasks_management.validation import TaskGroupValidation, TaskExecutorValidation, TaskValidation
+from tasks_management.validation import TaskGroupValidation, TaskExecutorValidation, TaskValidation, \
+    validate_task_status
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,11 @@ class TaskService(BaseService):
     def complete_task(self, obj_data):
         try:
             with transaction.atomic():
-                obj = self.OBJECT_TYPE.objects.get(id=obj_data['id'])
+                obj = self.OBJECT_TYPE.objects.select_for_update().get(id=obj_data['id'])
+                # A task already COMPLETED or FAILED is refused: the result carries success False and no task data.
+                errors = validate_task_status(obj.id)
+                if errors:
+                    raise ValidationError(errors)
                 obj.status = Task.Status.FAILED if obj_data.get('failed', False) else Task.Status.COMPLETED
                 obj.save(username=self.user.login_name)
                 return output_result_success({'task': model_representation(obj), 'user': {'id': f"{self.user.id}"}})
@@ -58,13 +64,15 @@ class TaskService(BaseService):
     @register_service_signal('task_service.resolve_task')
     def resolve_task(self, obj_data):
         try:
-            self.validation_class.validate_update(self.user, **obj_data)
-            obj = self.OBJECT_TYPE.objects.get(id=obj_data['id'])
-            incoming_status = obj_data.get('business_status')
-            additional_data = obj_data.get('additional_data')
-            self._update_task_business_status(obj, incoming_status, additional_data)
-            self._insert_additional_data_to_json_ext(obj, additional_data)
-            return output_result_success({'task': model_representation(obj), 'user': {'id': f"{self.user.id}"}})
+            with transaction.atomic():
+                # The lock keeps this save from writing back a status or a vote changed concurrently.
+                obj = self.OBJECT_TYPE.objects.select_for_update().filter(id=obj_data['id']).first()
+                self.validation_class.validate_resolve(self.user, **obj_data)
+                incoming_status = obj_data.get('business_status')
+                additional_data = obj_data.get('additional_data')
+                self._update_task_business_status(obj, incoming_status, additional_data)
+                self._insert_additional_data_to_json_ext(obj, additional_data)
+                return output_result_success({'task': model_representation(obj), 'user': {'id': f"{self.user.id}"}})
         except Exception as exc:
             return output_exception(model_name=self.OBJECT_TYPE.__name__, method="resolve", exception=exc)
 

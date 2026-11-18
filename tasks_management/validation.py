@@ -62,7 +62,14 @@ class TaskValidation(BaseModelValidation, ObjectExistsValidationMixin):
         super().validate_update(user, **data)
         uuid = data.get('id')
         cls.validate_object_exists(uuid)
-        errors = validate_task_status(uuid)
+        errors = validate_task_status(uuid) or validate_task_triage(data)
+        if errors:
+            raise ValidationError(errors)
+
+    @classmethod
+    def validate_resolve(cls, user, **data):
+        cls.validate_update(user, **data)
+        errors = validate_task_vote(user, data)
         if errors:
             raise ValidationError(errors)
 
@@ -90,6 +97,48 @@ def validate_task_status(uuid):
     if instance_status in [Task.Status.COMPLETED, Task.Status.FAILED]:
         return [
             {"message": _("tasks_management.validation.task.updating_completed_task") % {'status': instance_status}}]
+    return []
+
+
+def _same_value(incoming, stored):
+    return (None if incoming is None else str(incoming)) == (None if stored is None else str(stored))
+
+
+def validate_task_triage(data):
+    """
+    An update only triages: it sets the group and ACCEPTED on a RECEIVED task. A final status comes from
+    complete_task, after the votes, and an ACCEPTED task keeps its group and status, so its voters stay the
+    executors of the group it was accepted into. A field sent with its stored value is not a change.
+    """
+    if 'status' not in data and 'task_group_id' not in data:
+        return []
+    task = Task.objects.select_for_update().get(id=data.get('id'))
+    status = data.get('status', task.status)
+    if not _same_value(status, task.status) and str(status) in (Task.Status.COMPLETED, Task.Status.FAILED):
+        return [{"message": _("tasks_management.validation.task.update_to_final_status") % {'status': status}}]
+    if task.status == Task.Status.RECEIVED:
+        return []
+    if not _same_value(status, task.status) \
+            or not _same_value(data.get('task_group_id', task.task_group_id), task.task_group_id):
+        return [{"message": _("tasks_management.validation.task.update_after_triage") % {'status': task.status}}]
+    return []
+
+
+def validate_task_vote(user, data):
+    task = Task.objects.get(id=data.get('id'))
+    if task.status != Task.Status.ACCEPTED:
+        return [{"message": _("tasks_management.validation.task.vote_task_not_accepted") % {'status': task.status}}]
+    is_executor = TaskExecutor.objects.filter(
+        task_group_id=task.task_group_id,
+        task_group__is_deleted=False,
+        user_id=user.id,
+        is_deleted=False,
+    ).exists()
+    if not is_executor:
+        return [{"message": _("tasks_management.validation.task.voter_not_executor")}]
+    # The completion policies count every key of business_status as one vote.
+    if set(data.get('business_status') or {}) != {str(user.id)}:
+        return [{"message": _("tasks_management.validation.task.vote_for_another_user")}]
     return []
 
 
